@@ -5,20 +5,22 @@ Email: chenkenbio@gmail.com
 Date: 2023-02-25
 """
 
+import argparse
 import os
 import sys
 import numpy as np
+from tqdm import tqdm
 import torch
 from torch import Tensor
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset, Subset
-from typing import Iterable, Optional
+from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple, Union
 
 ONEHOT = torch.cat((
-    torch.ones(1, 4) / 4, # N: 0
-    torch.eye(4), # A, C, G, T: 1, 2, 3, 4
-    torch.zeros(1, 4), # padding: -1 (optional)
+    torch.ones(1, 4) / 4, # 
+    torch.eye(4), # A, C, G, T
+    torch.zeros(1, 4), # padding
 ), dim=0).float()
 
 class ConvTower(nn.Module):
@@ -35,17 +37,7 @@ class ConvTower(nn.Module):
         return self.conv(x)
 
 class scBasset(nn.Module):
-    r"""
-    PyTorch implementation of scBasset: https://github.com/calico/scBasset
-    Parameters
-    ----------
-    n_cells (int): Number of cells
-    batch_ids (Optional[Iterable[int]]): Batch ids for each cell. If None, no batch effect 
-        will be considered. Default None
-    hidden_size (int): Bottleneck size. Default 32
-    seq_len (int): Length of the input sequence. Default 1344
-    """
-    def __init__(self, n_cells: int, batch_ids: Optional[Iterable[int]]=None, hidden_size=32, seq_len: int=1344):
+    def __init__(self, n_cells: int, batch_ids: Optional[Iterable[int]]=None, hidden_size=32, seq_len: int=1344, bias: bool=True):
         super().__init__()
         self.config = {
             "n_cells": n_cells,
@@ -100,16 +92,16 @@ class scBasset(nn.Module):
         )
 
         # 6 
-        self.cell_embedding = nn.Linear(hidden_size, n_cells)
+        self.cell_embedding = nn.Linear(hidden_size, n_cells, bias=bias)
+        # self.cell_embedding = nn.Parameter(torch.randn(hidden_size, n_cells)) # (hidden_size, n_cells)
+        # self.cell_bias = nn.Parameter(torch.randn(n_cells))
     
     def get_embedding(self):
-        return self.cell_embedding.state_dict()["weight"].detach()
+        return self.cell_embedding.state_dict()["weight"]
     
     def forward(self, sequence: Tensor) -> Tensor:
         r"""
-        Parameters
-        ----------
-        sequence (Tensor): (batch_size, seq_len), 0, 1, 2, 3, 4, -1 for [N], [A], [C], [G], [T], [padding]
+        sequence: (batch_size, seq_len), one-hot encoded sequence, 0: N, 1: A, 2: C, 3: G, 4: T, -1: padding
         """
         # assert sequence.shape[1] == self.seq_len
         sequence = self.onehot[sequence.long()].transpose(1, 2)
@@ -119,7 +111,14 @@ class scBasset(nn.Module):
         sequence = self.flatten(sequence)
         sequence = self.dense(sequence) # (B, hidden_size)
         logits = self.cell_embedding(sequence)
+        lr_reg_cell = torch.norm(self.cell_embedding.weight, p=2) + torch.norm(self.cell_embedding.bias, p=2)
         if self.batch_ids is not None:
             batch_embed = self.batch_embedding(self.batch_ids).T # (n_cell, hidden_size) -> (hidden_size, n_cell)
             logits += torch.matmul(sequence, batch_embed)
-        return logits
+            lr_reg_batch = torch.norm(self.batch_embedding.weight, p=2)
+        else:
+            lr_reg_batch = 0
+        
+        return logits, lr_reg_cell, lr_reg_batch
+
+        # return self.cell_embedding(self.dense(sequence))
