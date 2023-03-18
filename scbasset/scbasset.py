@@ -103,7 +103,7 @@ class scBasset(nn.Module):
         self.cell_embedding = nn.Linear(hidden_size, n_cells)
     
     def get_embedding(self):
-        return self.cell_embedding.state_dict()["weight"]
+        return self.cell_embedding.state_dict()["weight"].detach()
     
     def forward(self, sequence: Tensor) -> Tensor:
         r"""
