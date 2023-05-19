@@ -50,7 +50,8 @@ class scBasset(nn.Module):
             self.batch_embedding = nn.Embedding(max(batch_ids) + 1, hidden_size)
             self.batch_ids = nn.Parameter(torch.as_tensor(batch_ids), requires_grad=False)
             assert self.batch_ids.ndim == 1
-        self.onehot = nn.Parameter(ONEHOT, requires_grad=False)
+        # self.onehot = nn.Parameter(ONEHOT, requires_grad=False)
+        self.register_buffer("onehot", ONEHOT)
         self.seq_len = seq_len
 
         current_len = seq_len
